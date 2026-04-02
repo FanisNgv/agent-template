@@ -20,26 +20,31 @@ def main():
     parser.add_argument("--card-url", type=str, help="URL to advertise in the agent card")
     args = parser.parse_args()
 
-    # Fill in your agent card
-    # See: https://a2a-protocol.org/latest/tutorials/python/3-agent-skills-and-card/
-    
     skill = AgentSkill(
-        id="",
-        name="",
-        description="",
-        tags=[],
-        examples=[]
+        id="bargaining",
+        name="Multi-Round Bargaining",
+        description=(
+            "Strategic bilateral bargaining agent. Negotiates the division of items "
+            "over multiple rounds using LLM-guided reasoning with aspiration-style "
+            "fallback. Optimises for Nash Welfare and Utilitarian Welfare."
+        ),
+        tags=["negotiation", "bargaining", "game-theory", "multi-agent"],
+        examples=["Negotiate item allocation over 5 rounds with discount 0.98"],
     )
 
     agent_card = AgentCard(
-        name="",
-        description="",
+        name="Purple Bargaining Agent",
+        description=(
+            "An LLM-powered negotiation agent for the MAizeBargAIn benchmark. "
+            "Uses Claude to reason about optimal proposals and accept/reject decisions "
+            "in multi-round bilateral bargaining games."
+        ),
         url=args.card_url or f"http://{args.host}:{args.port}/",
-        version='1.0.0',
-        default_input_modes=['text'],
-        default_output_modes=['text'],
+        version="1.0.0",
+        default_input_modes=["text"],
+        default_output_modes=["text"],
         capabilities=AgentCapabilities(streaming=True),
-        skills=[skill]
+        skills=[skill],
     )
 
     request_handler = DefaultRequestHandler(
@@ -53,5 +58,5 @@ def main():
     uvicorn.run(server.build(), host=args.host, port=args.port)
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()
