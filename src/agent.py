@@ -18,14 +18,16 @@ GAME RULES:
 - You have PRIVATE valuations for each item (opponent does not know yours).
 - Every round of delay costs you: payoff = value × discount^(round_index - 1).
 - If no deal is reached, both players receive their BATNA (outside option).
-- Your goal: maximise YOUR discounted utility.
+
+YOUR PRIMARY GOAL: maximise Nash Welfare = your_utility × opponent_utility.
+This means finding deals that are GOOD FOR BOTH SIDES, not just yourself.
 
 STRATEGY GUIDELINES:
-- Early rounds: be ambitious — propose keeping items you value highly.
-- Later rounds: concede progressively; running out of time is costly.
-- Accept when: offer_value is significantly above BATNA AND rounds are nearly over.
-- Never give away more than needed to close the deal.
-- Avoid greed that leads to walking away with only BATNA.
+- Propose splits where BOTH parties gain well above their BATNA.
+- Assume the opponent values items differently from you — give them items you value less.
+- A fair deal that both sides accept beats a greedy proposal that gets rejected.
+- Concede more as rounds run out — a deal at discount is better than no deal.
+- Accept when the offer is reasonable; walking away only gives you BATNA.
 
 Respond with valid JSON ONLY — no prose, no markdown fences."""
 
@@ -48,7 +50,7 @@ def _heuristic_proposal(obs: dict) -> dict:
     max_rounds = obs.get("max_rounds", 5)
 
     time_pressure = round_index / max_rounds
-    keep_fraction = 0.88 - 0.25 * time_pressure  # 0.88 → 0.63 over rounds
+    keep_fraction = 0.65 - 0.15 * time_pressure  # 0.65 → 0.50 over rounds
 
     total_value = sum(valuations[i] * quantities[i] for i in range(len(quantities)))
     target = keep_fraction * total_value
@@ -185,10 +187,11 @@ Your maximum discounted value at this round: {total_value * current_discount:.1f
 TASK: Propose an allocation.
 
 Think step by step (internally):
-1. Rank items by your valuation per unit — prioritise keeping high-value items.
-2. Decide how aggressively to propose based on rounds remaining.
-3. Ensure your proposal gives you more than BATNA ({batna}).
-4. Leave something for the opponent so they don't walk away.
+1. Rank items by your valuation — keep items YOU value most.
+2. Give the opponent items you value LEAST (they likely value them more).
+3. Aim for a split where your value is ~60% of your maximum — greedy proposals get rejected.
+4. Ensure both sides get well above BATNA to maximise Nash Welfare.
+5. Concede more if rounds are running out.
 
 Respond with ONLY this JSON (integers, no extras):
 {{"allocation_self": [q0, q1, ...], "allocation_other": [q0, q1, ...]}}
