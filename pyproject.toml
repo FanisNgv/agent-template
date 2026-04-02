@@ -10,6 +10,9 @@ dependencies = [
     "openai>=1.50.0",
 ]
 
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
 [project.optional-dependencies]
 test = [
     "pytest>=8.0.0",
