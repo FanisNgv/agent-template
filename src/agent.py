@@ -74,6 +74,70 @@ def _heuristic_proposal(obs: dict) -> dict:
     return {"allocation_self": allocation_self, "allocation_other": allocation_other}
 
 
+def _infer_opponent_preferences(obs: dict) -> str:
+    """Infer opponent's item preferences from their past proposals.
+
+    The opponent reveals preferences by what they keep for themselves.
+    We observe this via last_offer (what they offered US) and history.
+    """
+    quantities: list[int] = obs.get("quantities", [])
+    n = len(quantities)
+    if n == 0:
+        return ""
+
+    # Collect all opponent proposals (what they kept = quantities - offer_to_us)
+    opponent_kept_history: list[list[int]] = []
+
+    # From history field
+    history = obs.get("history", [])
+    for entry in history:
+        # history entries may be dicts with an "offer" key, or plain lists
+        if isinstance(entry, dict):
+            offer_to_us = entry.get("offer") or entry.get("allocation_other")
+        elif isinstance(entry, list):
+            offer_to_us = entry
+        else:
+            continue
+        if offer_to_us and len(offer_to_us) == n:
+            kept = [quantities[i] - int(offer_to_us[i]) for i in range(n)]
+            if all(k >= 0 for k in kept):
+                opponent_kept_history.append(kept)
+
+    # From last_offer (most recent opponent proposal to us)
+    last_offer = obs.get("last_offer")
+    if last_offer and len(last_offer) == n:
+        kept = [quantities[i] - int(last_offer[i]) for i in range(n)]
+        if all(k >= 0 for k in kept):
+            opponent_kept_history.append(kept)
+
+    if not opponent_kept_history:
+        return ""
+
+    # Average fraction of each item the opponent kept for themselves
+    avg_kept_frac = []
+    for i in range(n):
+        if quantities[i] > 0:
+            avg = sum(h[i] for h in opponent_kept_history) / (len(opponent_kept_history) * quantities[i])
+        else:
+            avg = 0.0
+        avg_kept_frac.append(avg)
+
+    # Rank items by how much opponent wants them
+    ranked = sorted(range(n), key=lambda i: avg_kept_frac[i], reverse=True)
+    lines = [f"  Item {i}: opponent kept ~{avg_kept_frac[i]*100:.0f}% on average" for i in ranked]
+    top = [str(i) for i in ranked if avg_kept_frac[i] > 0.4]
+    bottom = [str(i) for i in ranked if avg_kept_frac[i] < 0.2]
+
+    summary = "\n".join(lines)
+    insight = ""
+    if top:
+        insight += f"\n  → Opponent likely values item(s) {', '.join(top)} highly — consider giving these to them."
+    if bottom:
+        insight += f"\n  → Opponent seems indifferent to item(s) {', '.join(bottom)} — keep those for yourself."
+
+    return f"OPPONENT PREFERENCE SIGNALS (from {len(opponent_kept_history)} observed proposal(s)):\n{summary}{insight}"
+
+
 def _repair_proposal(result: dict, quantities: list[int]) -> dict:
     """Clamp allocation_self to valid range and recompute allocation_other."""
     n = len(quantities)
@@ -169,6 +233,8 @@ class Agent:
         current_discount = discount ** (round_index - 1)
         rounds_left = max_rounds - round_index
 
+        opponent_signals = _infer_opponent_preferences(obs)
+
         user_prompt = f"""\
 NEGOTIATION STATE
 -----------------
@@ -184,11 +250,13 @@ Discount factor: {discount}  →  current multiplier: {current_discount:.4f}
 Your maximum possible value (if you kept everything): {total_value}
 Your maximum discounted value at this round: {total_value * current_discount:.1f}
 
+{opponent_signals}
+
 TASK: Propose an allocation.
 
 Think step by step (internally):
 1. Rank items by your valuation — keep items YOU value most.
-2. Give the opponent items you value LEAST (they likely value them more).
+2. Use opponent signals above: give them items they value highly (and you value less).
 3. Aim for a split where your value is ~60% of your maximum — greedy proposals get rejected.
 4. Ensure both sides get well above BATNA to maximise Nash Welfare.
 5. Concede more if rounds are running out.
