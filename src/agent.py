@@ -257,10 +257,10 @@ TASK: Propose an allocation.
 
 Think step by step (internally):
 1. Rank items by your valuation — keep items YOU value most.
-2. Use opponent signals above: give them items they value highly (and you value less).
-3. Aim for a split where your value is ~60% of your maximum — greedy proposals get rejected.
-4. Ensure both sides get well above BATNA to maximise Nash Welfare.
-5. Concede more if rounds are running out.
+2. Use opponent signals: give them items they value highly (and you value less).
+3. Estimate opponent's BATNA: assume it is roughly 20-40% of total item value. Your proposal must give them ENOUGH to prefer the deal over walking away.
+4. Aim for your value ~60-65% of your maximum. Greedy proposals get rejected → no deal → both get only BATNA.
+5. Concede more if rounds are running out — a modest deal beats no deal.
 
 Respond with ONLY this JSON (integers, no extras):
 {{"allocation_self": [q0, q1, ...], "allocation_other": [q0, q1, ...]}}
@@ -301,10 +301,12 @@ Constraint: allocation_self[i] + allocation_other[i] == quantities[i] for every 
         if rounds_left == 0:
             return {"accept": True}
 
-        # Hard rule: late game — accept if offer is meaningfully above BATNA
-        # No deal = both get BATNA = NWA stays 0; a modest deal is better
+        # Hard rule: late game — accept if offer is well above BATNA
+        # Threshold rises with time pressure but stays high enough to protect UW%
         late_game = round_index >= max_rounds * 0.6
-        if late_game and offer_value >= batna_value * 1.1:
+        last_chance = rounds_left <= 1
+        threshold = batna_value * (1.2 if last_chance else 1.4)
+        if late_game and offer_value >= threshold:
             return {"accept": True}
 
         next_discount = discount ** round_index
