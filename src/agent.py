@@ -66,7 +66,8 @@ def _heuristic_proposal(obs: dict) -> dict:
         remaining_needed = target - accumulated
         per_unit = valuations[i]
         take = min(quantities[i], max(1, round(remaining_needed / per_unit)))
-        take = min(take, quantities[i])
+        # Leave at least 1 unit of each item for opponent (helps EF1)
+        take = min(take, max(0, quantities[i] - 1))
         allocation_self[i] = take
         accumulated += take * per_unit
 
@@ -295,7 +296,18 @@ Constraint: allocation_self[i] + allocation_other[i] == quantities[i] for every 
             return {"accept": False}
 
         rounds_left = max_rounds - round_index
-        next_discount = discount ** round_index  # discount if we counter now
+
+        # Hard rule: last round — always accept if above BATNA (no more chances)
+        if rounds_left == 0:
+            return {"accept": True}
+
+        # Hard rule: late game — accept if offer is meaningfully above BATNA
+        # No deal = both get BATNA = NWA stays 0; a modest deal is better
+        late_game = round_index >= max_rounds * 0.6
+        if late_game and offer_value >= batna_value * 1.1:
+            return {"accept": True}
+
+        next_discount = discount ** round_index
         discounted_counter = counter_value * next_discount
 
         user_prompt = f"""\
@@ -308,11 +320,14 @@ Expected value if you counter-offer next round: ~{discounted_counter:.1f}
 
 Round: {round_index} / {max_rounds}  ({rounds_left} rounds remaining after this)
 
+CRITICAL: Failing to reach a deal means BOTH players get only BATNA.
+This destroys Nash Welfare and NWA for this game entirely.
+A modest deal above BATNA is almost always better than no deal.
+
 DECISION FRAMEWORK:
-- offer_value < batna_value → always reject  ← already ruled out
-- offer_value ≥ counter (discounted) → accept (no benefit to waiting)
-- rounds_left == 0 → accept if offer_value ≥ batna_value (no more chances)
-- otherwise → weigh the gain from counter-offering vs. risk of no deal
+- offer_value ≥ discounted_counter → accept (no benefit to waiting)
+- Few rounds left → strongly prefer accepting over risking no deal
+- Only reject if you are confident a better counter-offer will be accepted
 
 Should you ACCEPT this offer?
 Respond with ONLY: {{"accept": true}} or {{"accept": false}}
