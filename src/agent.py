@@ -76,23 +76,21 @@ def _heuristic_proposal(obs: dict) -> dict:
 
 
 def _infer_opponent_preferences(obs: dict) -> str:
-    """Infer opponent's item preferences from their past proposals.
+    """Infer opponent's item preferences and concession trend from their past proposals.
 
     The opponent reveals preferences by what they keep for themselves.
-    We observe this via last_offer (what they offered US) and history.
+    We observe this via history (chronological) and last_offer.
     """
     quantities: list[int] = obs.get("quantities", [])
     n = len(quantities)
     if n == 0:
         return ""
 
-    # Collect all opponent proposals (what they kept = quantities - offer_to_us)
+    # Collect opponent proposals in chronological order (what they kept)
     opponent_kept_history: list[list[int]] = []
 
-    # From history field
     history = obs.get("history", [])
     for entry in history:
-        # history entries may be dicts with an "offer" key, or plain lists
         if isinstance(entry, dict):
             offer_to_us = entry.get("offer") or entry.get("allocation_other")
         elif isinstance(entry, list):
@@ -104,7 +102,7 @@ def _infer_opponent_preferences(obs: dict) -> str:
             if all(k >= 0 for k in kept):
                 opponent_kept_history.append(kept)
 
-    # From last_offer (most recent opponent proposal to us)
+    # last_offer is most recent
     last_offer = obs.get("last_offer")
     if last_offer and len(last_offer) == n:
         kept = [quantities[i] - int(last_offer[i]) for i in range(n)]
@@ -114,16 +112,33 @@ def _infer_opponent_preferences(obs: dict) -> str:
     if not opponent_kept_history:
         return ""
 
-    # Average fraction of each item the opponent kept for themselves
+    k = len(opponent_kept_history)
+
+    # Average fraction of each item the opponent kept
     avg_kept_frac = []
     for i in range(n):
         if quantities[i] > 0:
-            avg = sum(h[i] for h in opponent_kept_history) / (len(opponent_kept_history) * quantities[i])
+            avg = sum(h[i] for h in opponent_kept_history) / (k * quantities[i])
         else:
             avg = 0.0
         avg_kept_frac.append(avg)
 
-    # Rank items by how much opponent wants them
+    # Concession trend: compare first half vs second half of history
+    trend_lines = []
+    if k >= 2:
+        mid = k // 2
+        early = opponent_kept_history[:mid]
+        late = opponent_kept_history[mid:]
+        for i in range(n):
+            if quantities[i] > 0:
+                early_frac = sum(h[i] for h in early) / (len(early) * quantities[i])
+                late_frac = sum(h[i] for h in late) / (len(late) * quantities[i])
+                delta = late_frac - early_frac
+                if abs(delta) > 0.1:
+                    direction = "increasing" if delta > 0 else "decreasing"
+                    trend_lines.append(f"  Item {i}: opponent demand {direction} ({early_frac*100:.0f}%→{late_frac*100:.0f}%)")
+
+    # Rank items by avg opponent demand
     ranked = sorted(range(n), key=lambda i: avg_kept_frac[i], reverse=True)
     lines = [f"  Item {i}: opponent kept ~{avg_kept_frac[i]*100:.0f}% on average" for i in ranked]
     top = [str(i) for i in ranked if avg_kept_frac[i] > 0.4]
@@ -135,15 +150,18 @@ def _infer_opponent_preferences(obs: dict) -> str:
         insight += f"\n  → Opponent likely values item(s) {', '.join(top)} highly — consider giving these to them."
     if bottom:
         insight += f"\n  → Opponent seems indifferent to item(s) {', '.join(bottom)} — keep those for yourself."
+    if trend_lines:
+        insight += "\n  TREND:\n" + "\n".join(trend_lines)
 
-    return f"OPPONENT PREFERENCE SIGNALS (from {len(opponent_kept_history)} observed proposal(s)):\n{summary}{insight}"
+    return f"OPPONENT PREFERENCE SIGNALS (from {k} observed proposal(s)):\n{summary}{insight}"
 
 
 def _repair_proposal(result: dict, quantities: list[int]) -> dict:
-    """Clamp allocation_self to valid range and recompute allocation_other."""
+    """Clamp allocation_self to valid range, ensure opponent gets ≥1 of each item."""
     n = len(quantities)
     alloc_self = result.get("allocation_self", [0] * n)
-    alloc_self = [max(0, min(int(alloc_self[i]), quantities[i])) for i in range(n)]
+    # Clamp to [0, quantities[i]-1] so opponent always gets at least 1 unit (EF1)
+    alloc_self = [max(0, min(int(alloc_self[i]), max(0, quantities[i] - 1))) for i in range(n)]
     alloc_other = [quantities[i] - alloc_self[i] for i in range(n)]
     return {"allocation_self": alloc_self, "allocation_other": alloc_other}
 
@@ -264,7 +282,9 @@ Think step by step (internally):
 Respond with ONLY this JSON (integers, no extras):
 {{"allocation_self": [q0, q1, ...], "allocation_other": [q0, q1, ...]}}
 
-Constraint: allocation_self[i] + allocation_other[i] == quantities[i] for every i.
+Constraints:
+- allocation_self[i] + allocation_other[i] == quantities[i] for every i.
+- allocation_other[i] >= 1 for every i (opponent must receive at least 1 unit of each item).
 """
 
         raw_content = await self._chat(
