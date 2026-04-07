@@ -170,10 +170,11 @@ class Agent:
     def __init__(self):
         self.messenger = Messenger()
         self.client = AsyncOpenAI(
-            api_key=os.environ.get("OPENAI_API_KEY"),
+            api_key=os.environ.get("MISTRAL_API_KEY"),
+            base_url="https://api.mistral.ai/v1",
             timeout=30.0,
         )
-        self.model = "gpt-4o"
+        self.model = "mistral-large-latest"
 
     async def run(self, message: Message, updater: TaskUpdater) -> None:
         input_text = get_message_text(message)

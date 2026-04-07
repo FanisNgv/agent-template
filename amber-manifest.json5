@@ -4,9 +4,9 @@
   config_schema: {
     type: "object",
     properties: {
-      openai_api_key: { type: "string", secret: true },
+      mistral_api_key: { type: "string", secret: true },
     },
-    required: ["openai_api_key"],
+    required: ["mistral_api_key"],
     additionalProperties: false,
   },
 
@@ -20,7 +20,7 @@
     entrypoint: "uv run python src/server.py --host 0.0.0.0 --port 9010",
 
     env: {
-      OPENAI_API_KEY: "${config.openai_api_key}",
+      MISTRAL_API_KEY: "${config.mistral_api_key}",
     },
 
     network: {
