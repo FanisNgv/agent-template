@@ -50,7 +50,7 @@ def _heuristic_proposal(obs: dict) -> dict:
     max_rounds = obs.get("max_rounds", 5)
 
     time_pressure = round_index / max_rounds
-    keep_fraction = 0.55 - 0.10 * time_pressure  # 0.55 → 0.45 over rounds
+    keep_fraction = 0.65 - 0.15 * time_pressure  # 0.65 → 0.50 over rounds
 
     total_value = sum(valuations[i] * quantities[i] for i in range(len(quantities)))
     target = keep_fraction * total_value
@@ -256,11 +256,10 @@ TASK: Propose an allocation.
 
 Think step by step (internally):
 1. Rank items by your valuation — keep items YOU value most.
-2. Use opponent signals: give them items they value highly (and you value less).
-3. Aim for ~55% of your maximum value — a fair split raises summary Nash Welfare for EVERYONE.
-4. Give opponent at least 1 unit of EVERY item (critical for EF1 fairness metric).
-5. Ensure both sides are well above BATNA — this drives NWA for the whole meta-game.
-6. Concede more as rounds run out.
+2. Use opponent signals above: give them items they value highly (and you value less).
+3. Aim for a split where your value is ~60% of your maximum — greedy proposals get rejected.
+4. Ensure both sides get well above BATNA to maximise Nash Welfare.
+5. Concede more if rounds are running out.
 
 Respond with ONLY this JSON (integers, no extras):
 {{"allocation_self": [q0, q1, ...], "allocation_other": [q0, q1, ...]}}
@@ -303,14 +302,8 @@ Constraint: allocation_self[i] + allocation_other[i] == quantities[i] for every 
 
         # Hard rule: late game — accept if offer is meaningfully above BATNA
         # No deal = both get BATNA = NWA stays 0; a modest deal is better
-        # Mid-game: accept if offer is reasonably above BATNA
-        mid_game = round_index >= max_rounds * 0.4
-        if mid_game and offer_value >= batna_value * 1.15:
-            return {"accept": True}
-
-        # Late game: accept at lower threshold — more deals = higher summary NW
         late_game = round_index >= max_rounds * 0.6
-        if late_game and offer_value >= batna_value * 1.05:
+        if late_game and offer_value >= batna_value * 1.1:
             return {"accept": True}
 
         next_discount = discount ** round_index
