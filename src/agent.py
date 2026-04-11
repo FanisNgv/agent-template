@@ -306,60 +306,20 @@ Constraints:
     async def _decide_accept_reject(self, obs: dict) -> dict:
         offer_value: float = obs.get("offer_value", 0)
         batna_value: float = obs.get("batna_value", obs.get("batna_self", 0))
-        counter_value: float = obs.get("counter_value", 0)
         round_index: int = obs.get("round_index", 1)
         max_rounds: int = obs.get("max_rounds", 5)
         discount: float = obs.get("discount", 0.98)
 
-        # Hard rule: never accept below BATNA
-        if offer_value < batna_value:
-            return {"accept": False}
+        # Discounted BATNA: value of waiting shrinks each round
+        discounted_batna = batna_value * (discount ** (round_index - 1))
 
-        rounds_left = max_rounds - round_index
+        # Threshold relaxes over time — urgency increases as rounds run out
+        progress = round_index / max_rounds
+        if progress < 0.33:
+            threshold = discounted_batna          # early: require full discounted BATNA
+        elif progress < 0.67:
+            threshold = discounted_batna * 0.7    # mid: 70%
+        else:
+            threshold = discounted_batna * 0.3    # late: 30% — strongly prefer closing
 
-        # Hard rule: last round — always accept if above BATNA (no more chances)
-        if rounds_left == 0:
-            return {"accept": True}
-
-        # Hard rule: late game — accept if offer is meaningfully above BATNA
-        # No deal = both get BATNA = NWA stays 0; a modest deal is better
-        late_game = round_index >= max_rounds * 0.6
-        if late_game and offer_value >= batna_value * 1.1:
-            return {"accept": True}
-
-        next_discount = discount ** round_index
-        discounted_counter = counter_value * next_discount
-
-        user_prompt = f"""\
-ACCEPT OR REJECT DECISION
---------------------------
-Offer value to YOU: {offer_value:.1f}
-Your BATNA (walk-away): {batna_value:.1f}
-Expected value if you counter-offer next round: ~{discounted_counter:.1f}
-  (counter_value={counter_value:.1f} × discount^{round_index}={next_discount:.4f})
-
-Round: {round_index} / {max_rounds}  ({rounds_left} rounds remaining after this)
-
-CRITICAL: Failing to reach a deal means BOTH players get only BATNA.
-This destroys Nash Welfare and NWA for this game entirely.
-A modest deal above BATNA is almost always better than no deal.
-
-DECISION FRAMEWORK:
-- offer_value ≥ discounted_counter → accept (no benefit to waiting)
-- Few rounds left → strongly prefer accepting over risking no deal
-- Only reject if you are confident a better counter-offer will be accepted
-
-Should you ACCEPT this offer?
-Respond with ONLY: {{"accept": true}} or {{"accept": false}}
-"""
-
-        raw_content = await self._chat(
-            messages=[
-                {"role": "system", "content": SYSTEM_PROMPT},
-                {"role": "user", "content": user_prompt},
-            ],
-            max_tokens=256,
-        )
-        raw = _extract_json(raw_content or "")
-        result = json.loads(raw)
-        return {"accept": bool(result.get("accept", False))}
+        return {"accept": offer_value >= threshold}
