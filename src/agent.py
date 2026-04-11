@@ -170,11 +170,10 @@ class Agent:
     def __init__(self):
         self.messenger = Messenger()
         self.client = AsyncOpenAI(
-            api_key=os.environ.get("MISTRAL_API_KEY"),
-            base_url="https://api.mistral.ai/v1",
+            api_key=os.environ.get("OPENAI_API_KEY"),
             timeout=30.0,
         )
-        self.model = "mistral-large-latest"
+        self.model = "gpt-4o"
 
     async def run(self, message: Message, updater: TaskUpdater) -> None:
         input_text = get_message_text(message)
@@ -321,5 +320,8 @@ Constraints:
             threshold = discounted_batna * 0.7    # mid: 70%
         else:
             threshold = discounted_batna * 0.3    # late: 30% — strongly prefer closing
+
+        # Hard floor: never accept below actual BATNA (protects NWA%)
+        threshold = max(threshold, batna_value)
 
         return {"accept": offer_value >= threshold}
