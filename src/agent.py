@@ -120,10 +120,13 @@ def _estimate_opponent_values(obs: dict) -> list[float]:
         return [max(0.1, v * scale) for v in base_norm]
 
     k = len(opponent_kept_history)
+    # Weight recent offers more heavily (trend-sensitive).
+    weights = [1.0 + 0.6 * (idx / max(1, k - 1)) for idx in range(k)]
+    wsum = sum(weights)
     kept_frac = []
     for i in range(n):
         if quantities[i] > 0:
-            avg = sum(h[i] for h in opponent_kept_history) / (k * quantities[i])
+            avg = sum(opponent_kept_history[j][i] * weights[j] for j in range(k)) / (wsum * quantities[i])
         else:
             avg = 0.0
         kept_frac.append(avg)
@@ -225,6 +228,15 @@ def _target_self_fraction(round_index: int, max_rounds: int) -> float:
         return 0.55
     return 0.50
 
+def _target_opp_fraction(round_index: int, max_rounds: int) -> float:
+    # Higher opponent floor improves EF1/NWA by avoiding "stingy" deals.
+    progress = round_index / max_rounds if max_rounds else 1.0
+    if progress < 0.4:
+        return 0.25
+    if progress < 0.7:
+        return 0.30
+    return 0.35
+
 def _optimize_nash_allocation(
     quantities: list[int],
     self_vals: list[int],
@@ -304,6 +316,26 @@ def _optimize_nash_allocation(
             alloc_self[best_i] += 1
             self_value += self_vals[best_i]
             opp_value -= opp_vals[best_i]
+
+    # Enforce a minimum opponent value target (time-aware) to improve EF1/NWA.
+    max_opp_value = sum(opp_vals[i] * quantities[i] for i in range(n))
+    opp_target = _target_opp_fraction(round_index, max_rounds) * max_opp_value
+    if opp_value < opp_target:
+        while opp_value < opp_target:
+            best_i = None
+            best_ratio = -1.0
+            for i in range(n):
+                if alloc_self[i] > 0:
+                    ratio = opp_vals[i] / max(self_vals[i], eps)
+                    if ratio > best_ratio:
+                        best_ratio = ratio
+                        best_i = i
+            if best_i is None:
+                break
+            alloc_self[best_i] -= 1
+            alloc_other[best_i] += 1
+            opp_value += opp_vals[best_i]
+            self_value -= self_vals[best_i]
 
     return {"allocation_self": alloc_self, "allocation_other": alloc_other}
 
@@ -477,7 +509,7 @@ Constraint: allocation_self[i] + allocation_other[i] == quantities[i] for every 
 
         # Late-game bias: accept modest gains above BATNA.
         late_game = round_index >= max_rounds * 0.6
-        if late_game and offer_value >= batna_value * 1.05:
+        if late_game and offer_value >= batna_value * 1.02:
             return {"accept": True}
 
         # Estimate value of countering (discounted next-round expectation).
@@ -494,11 +526,11 @@ Constraint: allocation_self[i] + allocation_other[i] == quantities[i] for every 
         # Accept if current offer is competitive with expected counter.
         progress = round_index / max_rounds if max_rounds else 1.0
         if progress < 0.4:
-            threshold = discounted_counter * 0.95
+            threshold = discounted_counter * 0.90
         elif progress < 0.7:
-            threshold = discounted_counter * 0.85
+            threshold = discounted_counter * 0.80
         else:
-            threshold = discounted_counter * 0.70
+            threshold = discounted_counter * 0.60
 
         threshold = max(threshold, batna_value)
         return {"accept": offer_value >= threshold}
